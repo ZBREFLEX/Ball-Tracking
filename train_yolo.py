@@ -5,16 +5,19 @@ Fine-tune a pretrained YOLO26 model on your labelled tennis-ball images.
 DATA_YAML = the data.yaml from your exported dataset (YOLO format).
 """
 
-from ultralytics import YOLO
+from pathlib import Path
+
 import torch
+from ultralytics import YOLO
 
-DATA_YAML = r"E:\ball project\TennisBallPath\dataset\yolo\data.yaml"
-PROJECT_DIR = r"E:\ball project\TennisBallPath\runs"
+ROOT_DIR = Path(__file__).resolve().parent
+DATA_YAML = ROOT_DIR / "dataset" / "yolo" / "data.yaml"
+PROJECT_DIR = ROOT_DIR / "runs"
 
-MODEL = r"E:\ball project\TennisBallPath\runs\ball-4\weights\best.pt"   # continue from the first model  # use "yolo26n.pt" if you run out of GPU memory
-IMG_SIZE = 960           # keep high: the ball is small in a wide CCTV view
-BATCH = 4                # 4 GB VRAM. Lower to 2 if you get "CUDA out of memory"
-EPOCHS = 30
+MODEL = ROOT_DIR / "yolo26s.pt"  # start from the available pretrained weights
+IMG_SIZE = 640           # keep high: the ball is small in a wide CCTV view
+BATCH = 8                # 4 GB VRAM. Lower to 2 if you get "CUDA out of memory"
+EPOCHS = 100
 
 
 def main():
@@ -32,7 +35,7 @@ def main():
         workers=2,
         cache="ram",          # Windows: keep low
         device=0,
-        patience=10,        # stop early if no improvement
+        patience=5,        # stop early if no improvement
         project=PROJECT_DIR,
         name="ball",
         # augmentations suited to a fixed CCTV view and a small ball

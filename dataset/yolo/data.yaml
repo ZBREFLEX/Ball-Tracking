@@ -1,4 +1,4 @@
-path: "E:/ball project/TennisBallPath/dataset/yolo"
+path: "D:/Ball-tracking/Ball-Tracking/dataset/yolo"
 train: images/train
 val: images/val
 names:

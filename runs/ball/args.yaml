@@ -1,18 +1,18 @@
 task: detect
 mode: train
-model: yolo26s.pt
-data: E:\ball project\TennisBallPath\dataset\yolo\data.yaml
+model: D:\Ball-tracking\Ball-Tracking\yolo26s.pt
+data: D:\Ball-tracking\Ball-Tracking\dataset\yolo\data.yaml
 epochs: 100
 time: null
-patience: 30
-batch: 4
-imgsz: 960
+patience: 5
+batch: 8
+imgsz: 640
 save: true
 save_period: -1
-cache: false
+cache: ram
 device: "0"
-workers: 2
-project: E:\ball project\TennisBallPath\runs
+workers: 1
+project: D:\Ball-tracking\Ball-Tracking\runs
 name: ball
 exist_ok: false
 pretrained: true
@@ -47,6 +47,7 @@ dnn: false
 plots: true
 nms: null
 tile: false
+tile_overlap: 0.2
 source: null
 vid_stride: 1
 stream_buffer: false
@@ -112,4 +113,4 @@ auto_augment: randaugment
 erasing: 0.4
 cfg: null
 tracker: tracktrack.yaml
-save_dir: E:\ball project\TennisBallPath\runs\ball
+save_dir: D:\Ball-tracking\Ball-Tracking\runs\ball
