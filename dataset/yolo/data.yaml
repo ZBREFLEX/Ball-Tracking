@@ -1,0 +1,5 @@
+path: "E:/ball project/TennisBallPath/dataset/yolo"
+train: images/train
+val: images/val
+names:
+  0: tennis_ball
