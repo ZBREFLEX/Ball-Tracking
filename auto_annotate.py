@@ -46,6 +46,8 @@ def parse_args():
                         help="Inference batch size.")
     parser.add_argument("--device", choices=("auto", "cpu", "0"), default="auto",
                         help="Inference device (default: GPU when available, otherwise CPU).")
+    parser.add_argument("--start", type=int, default=0,
+                        help="Skip this many sorted images before processing.")
     parser.add_argument("--limit", type=int, default=0,
                         help="Process at most N images; 0 means all.")
     parser.add_argument("--review", action="store_true",
@@ -190,8 +192,8 @@ def main():
         raise ValueError("--confidence must be between 0 and 1.")
     if args.batch < 1:
         raise ValueError("--batch must be at least 1.")
-    if args.imgsz < 1 or args.limit < 0:
-        raise ValueError("--imgsz must be positive and --limit cannot be negative.")
+    if args.imgsz < 1 or args.start < 0 or args.limit < 0:
+        raise ValueError("--imgsz must be positive; --start and --limit cannot be negative.")
     if not args.images.is_dir():
         raise FileNotFoundError(f"Image folder does not exist: {args.images}")
 
@@ -199,7 +201,7 @@ def main():
         path for path in args.images.iterdir()
         if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS
     )
-    images = all_images
+    images = all_images[args.start:]
     if args.limit > 0:
         images = images[:args.limit]
     if not images:
@@ -217,7 +219,11 @@ def main():
     if device == "auto":
         device = 0 if torch.cuda.is_available() else "cpu"
     print(f"Model: {args.model}")
-    print(f"Device: {device}; batch: {args.batch}; images: {len(images)}")
+    end_index = args.start + len(images)
+    print(
+        f"Device: {device}; batch: {args.batch}; "
+        f"images {args.start + 1}-{end_index} of {len(all_images)}"
+    )
     print("Target model classes:", [model.names[class_id] for class_id in target_class_ids])
 
     results = model.predict(
