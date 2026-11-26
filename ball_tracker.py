@@ -10,6 +10,8 @@ Keys:   Q = quit     M = show/hide mask     C = clear trail
 Mouse:  LEFT-CLICK on the ball in a camera window = auto-set the HSV range
 """
 
+from pathlib import Path
+
 import cv2
 import numpy as np
 import threading
@@ -20,8 +22,8 @@ from collections import deque
 # CONFIG
 # ----------------------------------------------------------------------------
 CAMERAS = {
-    # "Camera 1": "rtsp://admin:12345@192.168.100.225:554/",
-    "Camera 1": "rtsp://admin:admin12345@192.168.100.197:554/live",
+    "Camera 1": "rtsp://admin:12345@192.168.100.225:554/",
+    # "Camera 1": "rtsp://admin:admin12345@192.168.100.198:554/live",
 }
 
 ACTIVE_CAMERAS = ["Camera 1"]   # use ["Camera 1"] at the office, ["Camera 1", "Camera 2"] for both
@@ -36,9 +38,10 @@ MIN_CIRCULARITY = 0.5     # lower = accepts blurry/elongated (fast) balls
 MIN_FILL = 0.45
 
 # --- YOLO detector (used after you have trained your own model) ---
-USE_YOLO = False          # keep HSV mode for real-time processing
-MODEL_PATH = r"E:\ball project\TennisBallPath\runs\ball-4\weights\best.pt"
-YOLO_CONF = 0.25          # lower = more detections, more false positives
+ROOT_DIR = Path(__file__).resolve().parent
+USE_YOLO = True
+MODEL_PATH = ROOT_DIR / "runs" / "ball" / "weights" / "best.pt"
+YOLO_CONF = 0.5           # stricter threshold to reduce false positives
 YOLO_IMGSZ = 960
 
 SETTINGS_WIN = "Settings"
