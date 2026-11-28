@@ -1,13 +1,13 @@
 """
 ball_tracker.py
-Real-time tennis ball detection + trajectory line (2D) on live RTSP feeds.
+Real-time tennis ball detection and short-horizon trajectory forecast on RTSP feeds.
 
-Method: HSV colour mask -> shape filtering (circularity / fill) -> Kalman filter
-for smoothing, prediction during short misses, and rejecting jumps to other
-yellow objects.
+Method: YOLO detection -> Kalman filter for smoothing, prediction during short
+misses, and rejecting jumps to other objects. Set USE_YOLO=False to use the HSV
+fallback.
 
 Keys:   Q = quit     M = show/hide mask     C = clear trail
-Mouse:  LEFT-CLICK on the ball in a camera window = auto-set the HSV range
+Mouse:  LEFT-CLICK samples HSV only when the HSV fallback is enabled
 """
 
 from pathlib import Path
@@ -22,8 +22,8 @@ from collections import deque
 # CONFIG
 # ----------------------------------------------------------------------------
 CAMERAS = {
-    "Camera 1": "rtsp://admin:12345@192.168.100.225:554/",
-    # "Camera 1": "rtsp://admin:admin12345@192.168.100.198:554/live",
+    # "Camera 1": "rtsp://admin:12345@192.168.100.225:554/",
+    "Camera 1": "rtsp://admin:admin12345@192.168.100.197:554/live",
 }
 
 ACTIVE_CAMERAS = ["Camera 1"]   # use ["Camera 1"] at the office, ["Camera 1", "Camera 2"] for both
@@ -32,8 +32,10 @@ PROC_WIDTH = 960          # frames are resized to this width for detection/displ
 TRAIL_SECONDS = 2.0       # how long the path line stays visible
 TRACK_REFERENCE_FPS = 25.0
 MAX_TRACK_GAP_S = 0.5     # stop predicting after this long without a detection
+FORECAST_HORIZON_S = 0.25
 ACQUIRE_WINDOW_S = 0.12   # require two nearby observations before starting a track
-MAX_JUMP_PX = 150         # max allowed jump per 1/25 s (in PROC_WIDTH pixels)
+MAX_JUMP_PX = 50          # max allowed jump per 1/25 s (in PROC_WIDTH pixels)
+MAX_TRACK_JUMP_PX = 160   # cap the gate so slow inference cannot allow frame-wide jumps
 MIN_CIRCULARITY = 0.5     # lower = accepts blurry/elongated (fast) balls
 MIN_FILL = 0.45
 
@@ -41,7 +43,7 @@ MIN_FILL = 0.45
 ROOT_DIR = Path(__file__).resolve().parent
 USE_YOLO = True
 MODEL_PATH = ROOT_DIR / "runs" / "ball" / "weights" / "best.pt"
-YOLO_CONF = 0.5           # stricter threshold to reduce false positives
+YOLO_CONF = 0.225         # best F1 threshold on the validation set
 YOLO_IMGSZ = 960
 
 SETTINGS_WIN = "Settings"
@@ -242,6 +244,17 @@ class BallTracker:
     def clear_trail(self):
         self.trail.clear()
 
+    def forecast_position(self):
+        if not self.active:
+            return None
+
+        x, y, vx, vy = (float(value) for value in self.kf.statePost[:, 0])
+        horizon_frames = FORECAST_HORIZON_S * TRACK_REFERENCE_FPS
+        return (
+            x + vx * horizon_frames,
+            y + vy * horizon_frames,
+        )
+
     def update(self, candidates, timestamp):
         """Returns (status, (x, y) or None)."""
         dt = (1.0 / TRACK_REFERENCE_FPS if self.last_update_timestamp is None
@@ -269,7 +282,10 @@ class BallTracker:
                 if (self.pending_candidate is not None
                         and pending_age is not None
                         and 0 < pending_age <= ACQUIRE_WINDOW_S):
-                    limit = MAX_JUMP_PX * max(pending_age * TRACK_REFERENCE_FPS, 1.0)
+                    limit = min(
+                        MAX_JUMP_PX * max(pending_age * TRACK_REFERENCE_FPS, 1.0),
+                        MAX_TRACK_JUMP_PX,
+                    )
                     pending_d = max(
                         self.pending_candidate.get("d", 2 * self.pending_candidate["r"]),
                         1.0,
@@ -298,7 +314,10 @@ class BallTracker:
                     self.pending_timestamp = None
             else:
                 elapsed = timestamp - self.last_detection_timestamp
-                limit = MAX_JUMP_PX * max(elapsed * TRACK_REFERENCE_FPS, 1.0)
+                limit = min(
+                    MAX_JUMP_PX * max(elapsed * TRACK_REFERENCE_FPS, 1.0),
+                    MAX_TRACK_JUMP_PX,
+                )
                 near = [c for c in candidates
                         if np.hypot(c["x"] - predicted[0], c["y"] - predicted[1]) <= limit]
                 if near:
@@ -313,12 +332,15 @@ class BallTracker:
                     [[chosen["x"]], [chosen["y"]], [0], [0]], dtype=np.float32)
                 self.kf.errorCovPost = np.eye(4, dtype=np.float32)
                 self.active = True
+                estimate = self.kf.statePost
             else:
-                self.kf.correct(np.array([[chosen["x"]], [chosen["y"]]], dtype=np.float32))
+                estimate = self.kf.correct(
+                    np.array([[chosen["x"]], [chosen["y"]]], dtype=np.float32)
+                )
 
             self.last_detection_timestamp = timestamp
             self.radius = chosen["r"]
-            pos = (chosen["x"], chosen["y"])
+            pos = (float(estimate[0, 0]), float(estimate[1, 0]))
             status = "DETECTED"
             self.trail.append((pos[0], pos[1], timestamp))
 
@@ -359,6 +381,27 @@ def draw_ball(img, status, pos, radius, scale):
     label = f"{status} ({x / scale:.0f}, {y / scale:.0f})"
     cv2.putText(img, label, (x + r + 4, y - r),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA)
+
+
+def draw_forecast(img, current_pos, future_pos):
+    if current_pos is None or future_pos is None:
+        return
+
+    height, width = img.shape[:2]
+    future_x, future_y = (int(round(value)) for value in future_pos)
+    if not (0 <= future_x < width and 0 <= future_y < height):
+        return
+
+    current = (int(round(current_pos[0])), int(round(current_pos[1])))
+    future = (future_x, future_y)
+    color = (255, 255, 0)
+    cv2.arrowedLine(img, current, future, color, 2, cv2.LINE_AA, tipLength=0.25)
+    cv2.circle(img, future, 6, color, 2, cv2.LINE_AA)
+    cv2.putText(
+        img, f"+{FORECAST_HORIZON_S:.2f}s",
+        (future_x + 8, future_y - 8),
+        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA,
+    )
 
 
 # ----------------------------------------------------------------------------
@@ -441,6 +484,7 @@ def main():
 
                 draw_trail(small, tracker.trail)
                 draw_ball(small, status, pos, tracker.radius, scale)
+                draw_forecast(small, pos, tracker.forecast_position())
                 cv2.putText(small, f"{name} | {status}", (10, 25),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
 
